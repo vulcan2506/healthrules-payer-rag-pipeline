@@ -1,0 +1,43 @@
+# Covers both "Stage 1/" (ingestion → taxonomy pipeline) and "../retrieval_layer/"
+# (retrieval, eval, Redis cache demo) — both run from this same venv.
+# Regenerated 2026-07-06 against actual imports in both folders (see KT doc,
+# "Environment & Dependencies"). Removed bertopic/hdbscan/umap-learn/nltk/
+# pdfplumber — no longer imported anywhere; topic clustering now uses plain
+# sentence-transformers + sklearn, and PDF extraction uses docling/pypdf.
+
+# ── Core ML / embeddings ───────────────────────────────────────────────────────
+torch>=2.10.0
+transformers>=4.57.0
+sentence-transformers>=2.7.0
+scikit-learn>=1.4.0
+numpy>=1.26.0
+pandas>=2.2.0
+
+# ── Stage 1: PDF extraction, keyword/taxonomy clustering ──────────────────────
+docling>=2.100.0
+pypdf>=6.0.0
+keybert>=0.9.0
+networkx>=3.6.0
+python-louvain>=0.16          # imported as `community.community_louvain`
+duckduckgo-search>=8.0.0      # optional web-search enrichment fallback (enricher.py); soft-fails if absent
+
+# ── LLM client (local llama.cpp server, OpenAI-compatible endpoint) ───────────
+openai>=2.0.0
+httpx>=0.28.0
+pydantic>=2.0.0
+langchain-core>=1.4.0
+
+# ── retrieval_layer: vector store, ANN index, reranking, session graph ────────
+chromadb>=1.5.0
+hnswlib>=0.8.0
+langgraph>=1.2.0
+redis>=8.0.0                  # client for a locally-running Redis server (see start guide)
+
+# ── retrieval_layer: eval harness + hackathon demo doc ─────────────────────────
+deepeval>=4.0.0
+python-docx>=1.2.0
+tqdm>=4.66.0
+
+# ── Not pip-installable — external services the pipeline calls out to ─────────
+# llama.cpp server (start_server.sh) — local Qwen model, OpenAI-compatible API
+# Redis server (systemd service, e.g. `sudo systemctl start redis-server`)
