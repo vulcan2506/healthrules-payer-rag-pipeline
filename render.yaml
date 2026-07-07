@@ -1,0 +1,43 @@
+# Render Blueprint — deploys the backend (Dockerfile.backend) + a managed
+# Redis instance for redis_cache.py's response cache preset (~76KB seeded
+# data — the free Redis plan's 25MB is plenty).
+#
+# Usage: Render dashboard → New → Blueprint → point at this repo. Render
+# reads this file automatically. After the first deploy, set the secret
+# env vars below in the dashboard (Render does not read Stage 1/.env —
+# it's gitignored and never reaches the built image).
+#
+# Required secret env vars (set in Render dashboard, not here):
+#   ANTHROPIC_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY
+# Set after the frontend is deployed to Vercel:
+#   ALLOWED_ORIGINS = https://<your-app>.vercel.app,http://localhost:3000
+
+services:
+  - type: web
+    name: healthrules-payer-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile.backend
+    dockerContext: .
+    plan: standard   # torch + sentence-transformers + docling need more than the free 512MB tier
+    healthCheckPath: /api/health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-6
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: http://localhost:3000
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: healthrules-payer-cache
+          property: connectionString
+
+  - type: redis
+    name: healthrules-payer-cache
+    plan: free
+    ipAllowList: []   # internal-only access from the web service above

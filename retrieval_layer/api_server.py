@@ -33,15 +33,24 @@ import config
 import llm_client
 import redis_cache
 import retriever
+import session as session_module
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)-8s %(message)s")
 log = logging.getLogger(__name__)
 
 app = FastAPI(title="HealthRules Payer Knowledge API")
 
+# ALLOWED_ORIGINS: comma-separated list, e.g. "https://your-app.vercel.app,http://localhost:3000".
+# Defaults to local dev only — set this env var on the deployed backend host
+# to the deployed Vercel frontend URL (and localhost, if you also test locally
+# against the deployed backend).
+_allowed_origins = [
+    o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000").split(",") if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -51,6 +60,28 @@ STAGE1_DIR = config.STAGE1_DIR
 PDF_DIR    = STAGE1_DIR / "data" / "pdfs"
 OUTPUT_DIR = config.STAGE1_OUTPUT
 ENV_PATH   = STAGE1_DIR / ".env"
+
+# ── Conversation sessions ────────────────────────────────────────────────────
+# One ConversationSession per frontend chat thread (session.py — already used
+# by cli.py's default REPL loop for every non-`--session` mode, including the
+# gated/cached path this endpoint wraps). Follow-ups like "explain that in
+# more detail" get rewritten into a standalone query BEFORE retrieval, using
+# the trimmed conversation window — without this, a pronoun-only follow-up is
+# retrieved on its own literal (near-contentless) text, pulls in unrelated
+# chunks, and the LLM ends up answering ungrounded — reads as hallucination.
+# Keyed by the frontend's per-thread session_id; a request with no session_id
+# stays fully stateless (unchanged prior behavior).
+_sessions: Dict[str, session_module.ConversationSession] = {}
+_sessions_lock = threading.Lock()
+
+
+def _get_session(session_id: str) -> session_module.ConversationSession:
+    with _sessions_lock:
+        sess = _sessions.get(session_id)
+        if sess is None:
+            sess = session_module.ConversationSession()
+            _sessions[session_id] = sess
+        return sess
 
 
 @app.get("/api/health")
@@ -76,6 +107,7 @@ class ChatRequest(BaseModel):
     intent: Optional[str] = None    # forcing this switches to the raw/diagnostic path (see above)
     version: Optional[str] = None   # only meaningful on the raw/diagnostic path
     raw: bool = False                # explicit opt-in to the raw/diagnostic path with no intent forced
+    session_id: Optional[str] = None  # frontend chat-thread id — omit for stateless single-shot calls
 
 
 @app.post("/api/chat")
@@ -83,16 +115,26 @@ def chat(req: ChatRequest) -> Dict:
     if not req.query.strip():
         raise HTTPException(400, "query is required")
 
+    sess = _get_session(req.session_id) if req.session_id else None
+    if sess is not None:
+        standalone, was_rewritten = sess.prepare_turn(req.query)
+    else:
+        standalone, was_rewritten = req.query, False
+
     if req.raw or req.intent:
         t0 = time.time()
         if req.best_of and req.best_of > 1:
             result = retriever.retrieve_best_of_n(
-                req.query, n=req.best_of, intent=req.intent, version=req.version
+                standalone, n=req.best_of, intent=req.intent, version=req.version
             )
         else:
-            result = retriever.retrieve(req.query, intent=req.intent, version=req.version)
+            result = retriever.retrieve(standalone, intent=req.intent, version=req.version)
+        if sess is not None:
+            sess.record_turn(req.query, result)  # no answer generated on the raw path — nothing to add_assistant_turn
         return {
-            "query":       req.query,
+            "query":            req.query,
+            "standalone_query": standalone,
+            "was_rewritten":    was_rewritten,
             "method":      result.get("intent", "specific"),
             "mode":        "raw",
             "answer":      None,
@@ -106,10 +148,17 @@ def chat(req: ChatRequest) -> Dict:
         raise HTTPException(400, f"mode must be 'concise' or 'detailed', got {req.mode!r}")
 
     try:
-        return redis_cache.answer_query(req.query, mode=req.mode, best_of=req.best_of)
+        result = redis_cache.answer_query(standalone, mode=req.mode, best_of=req.best_of)
     except Exception as e:
         log.exception("chat request failed")
         raise HTTPException(500, str(e))
+
+    if sess is not None:
+        sess.record_turn(req.query, result)
+        if result.get("answer"):
+            sess.add_assistant_turn(result["answer"])
+
+    return {**result, "query": req.query, "standalone_query": standalone, "was_rewritten": was_rewritten}
 
 
 # ── /api/settings ────────────────────────────────────────────────────────────

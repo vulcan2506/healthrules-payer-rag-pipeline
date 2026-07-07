@@ -91,10 +91,13 @@ _client: Optional["redis.Redis"] = None
 def _get_client() -> "redis.Redis":
     global _client
     if _client is None:
-        _client = redis.Redis(
-            host=config.REDIS_HOST, port=config.REDIS_PORT, db=config.REDIS_DB,
-            decode_responses=True,
-        )
+        if config.REDIS_URL:
+            _client = redis.Redis.from_url(config.REDIS_URL, decode_responses=True)
+        else:
+            _client = redis.Redis(
+                host=config.REDIS_HOST, port=config.REDIS_PORT, db=config.REDIS_DB,
+                decode_responses=True,
+            )
     return _client
 
 

@@ -1,0 +1,43 @@
+# Dependency set for deploying the backend (retrieval_layer/api_server.py +
+# Stage 1's ingestion pipeline, since /api/process subprocess-launches
+# Stage 1/main.py + run_tail.py --skip-eval) as a standalone service
+# (Render/Railway/Fly.io). --skip-eval means eval.py --compare and
+# build_cache_preset.py never run on this host, so their deps (deepeval,
+# python-docx) are intentionally excluded — those stay dev-machine-only.
+# Confirmed against every `import`/`from` in retrieval_layer/*.py and the
+# main.py/run_tail.py/ingest.py + Stage 2+ module chain (context_profiler,
+# enricher, grouper, label_normalizer, nested, quality_filter, topic_model).
+
+torch>=2.10.0
+transformers>=4.57.0
+sentence-transformers>=2.7.0
+scikit-learn>=1.4.0
+numpy>=1.26.0
+pandas>=2.2.0
+
+openai>=2.0.0
+httpx>=0.28.0
+pydantic>=2.0.0
+langchain-core>=1.4.0
+anthropic>=0.116.0
+python-dotenv>=1.0.0
+
+chromadb>=1.5.0
+hnswlib>=0.8.0
+langgraph>=1.2.0
+redis>=8.0.0
+
+fastapi>=0.139.0
+uvicorn[standard]>=0.49.0
+python-multipart>=0.0.32
+tqdm>=4.66.0
+
+# ── Stage 1 ingestion pipeline (docling primary OCR path, Claude vision is
+#    tried first per USE_CLAUDE_OCR — docling is the exception-only fallback) ──
+docling>=2.100.0
+pypdf>=6.0.0
+keybert>=0.9.0
+networkx>=3.6.0
+python-louvain>=0.16          # imported as `community.community_louvain`
+pymupdf>=1.27.0                # page-image rendering for Claude vision OCR (ingest.py)
+duckduckgo-search>=8.0.0      # optional web-search enrichment fallback (enricher.py); soft-fails if absent

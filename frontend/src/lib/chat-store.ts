@@ -12,6 +12,7 @@ export interface ChatMessage {
 
 interface ChatStoreState {
   messages: ChatMessage[];
+  sessionId: string;
   addUserMessage: (query: string) => string;
   addPendingAssistant: (query: string) => string;
   resolveAssistant: (id: string, response: ChatResponse) => void;
@@ -36,8 +37,18 @@ function nextId() {
   return `msg_${Date.now()}_${counter}`;
 }
 
+// Ties every /api/chat call in a conversation to the same backend
+// ConversationSession (see api_server.py) so follow-ups like "explain that in
+// more detail" get resolved against real history instead of retrieved on
+// their own literal (near-contentless) text. A new id per New Chat/loaded
+// thread starts a fresh session — the backend has no memory of it anyway.
+function nextSessionId() {
+  return `session_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
 export const useChatStore = create<ChatStoreState>((set) => ({
   messages: [],
+  sessionId: nextSessionId(),
 
   addUserMessage: (query) => {
     const id = nextId();
@@ -68,8 +79,8 @@ export const useChatStore = create<ChatStoreState>((set) => ({
       ),
     })),
 
-  clear: () => set({ messages: [] }),
-  loadMessages: (messages) => set({ messages }),
+  clear: () => set({ messages: [], sessionId: nextSessionId() }),
+  loadMessages: (messages) => set({ messages, sessionId: nextSessionId() }),
 
   mode: "concise",
   setMode: (mode) => set({ mode }),

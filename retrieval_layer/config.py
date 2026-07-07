@@ -100,9 +100,12 @@ CHROMA_N_EVOLUTION    = 5   # evolution cards merged into the delta path
 CHROMA_N_CROSS_CORPUS = 3   # cross-corpus relationship docs, ladder rung only
 
 # ── Redis response cache (hackathon demo preset) ──────────────────────────────
-REDIS_HOST       = "127.0.0.1"
-REDIS_PORT       = 6379
-REDIS_DB         = 0
+# Overridable via env for deployed hosts using a managed Redis add-on
+# (e.g. Render Key Value, Railway Redis) — defaults match local dev.
+REDIS_URL        = _os.environ.get("REDIS_URL")  # if set, redis_cache.py uses this directly (takes priority)
+REDIS_HOST       = _os.environ.get("REDIS_HOST", "127.0.0.1")
+REDIS_PORT       = int(_os.environ.get("REDIS_PORT", "6379"))
+REDIS_DB         = int(_os.environ.get("REDIS_DB", "0"))
 REDIS_KEY_PREFIX = "hackcache:v1:"    # bump version suffix if answer format changes
 REDIS_TTL_SECONDS = None              # None = no expiry (static demo preset, not live traffic)
 CACHE_PRESET_PATH = STAGE1_OUTPUT / "hackathon_cache_preset.json"

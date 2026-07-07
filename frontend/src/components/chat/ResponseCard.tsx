@@ -3,7 +3,7 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChevronDown, Clock, Gauge, Route, FileText, Sparkles } from "lucide-react";
+import { ChevronDown, Clock, Gauge, Route, FileText, Sparkles, MessageCircleQuestion } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -63,6 +63,22 @@ export function ResponseCard({ response }: { response: ChatResponse }) {
             <Clock className="size-3" />
             {formatLatency(response.latency_s, response.from_cache)}
           </Badge>
+
+          {response.was_rewritten && response.standalone_query && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Badge variant="outline" className="gap-1.5 py-1">
+                    <MessageCircleQuestion className="size-3" />
+                    Follow-up resolved
+                  </Badge>
+                }
+              />
+              <TooltipContent side="bottom" className="max-w-xs text-balance">
+                Understood this as a follow-up and searched for: &ldquo;{response.standalone_query}&rdquo;
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
 
         {response.chunks.length > 0 && (

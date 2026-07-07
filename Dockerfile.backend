@@ -1,0 +1,45 @@
+# Backend deploy image for retrieval_layer/api_server.py (Render/Railway/Fly.io).
+# NOT for Vercel — see Dockerfile.backend usage notes in the deploy guide;
+# Vercel's serverless size cap (~250MB unzipped) can't fit torch + chromadb +
+# the 125MB chroma_db corpus, and its stateless functions can't hold the
+# in-memory job/session state this backend keeps.
+#
+# Build context is the REPO ROOT (not retrieval_layer/) — this image needs
+# both retrieval_layer/ (the service) and Stage 1/ (STAGE1_DIR path
+# references, Knowledge Explorer file browsing, .env-shaped config loading,
+# and /api/process's subprocess launch of main.py + run_tail.py --skip-eval).
+# Docling IS included here (see requirements-serve.txt) — it's the
+# exception-only OCR fallback behind Claude vision (USE_CLAUDE_OCR), same as
+# local dev. The pre-built corpus still ships baked into this image via the
+# git-LFS-tracked chroma_db/ and index/ directories, so Chat/Knowledge
+# Explorer/Visualize work immediately without waiting on any processing —
+# "Process new PDF" reprocesses the ENTIRE corpus (a known pipeline
+# limitation, not new here), so treat it as a slower, heavier operation on
+# this host, same as it already is locally.
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Build deps for hnswlib/sentence-transformers native extensions, plus
+# libgl1/libglib2.0-0/libgomp1 for docling's opencv/onnxruntime-based layout
+# and table-structure models.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libgl1 \
+    libglib2.0-0 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY retrieval_layer/requirements-serve.txt ./requirements-serve.txt
+RUN pip install --no-cache-dir -r requirements-serve.txt
+
+COPY "Stage 1" "./Stage 1"
+COPY retrieval_layer ./retrieval_layer
+
+WORKDIR /app/retrieval_layer
+
+ENV PORT=8000
+EXPOSE 8000
+
+CMD ["sh", "-c", "uvicorn api_server:app --host 0.0.0.0 --port ${PORT}"]

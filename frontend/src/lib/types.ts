@@ -13,6 +13,8 @@ export interface ChatChunk {
 
 export interface ChatResponse {
   query: string;
+  standalone_query?: string; // present when session_id was sent — query after follow-up rewriting
+  was_rewritten?: boolean;   // true if the backend resolved a follow-up ("explain that more") using conversation history
   method: string; // "pipeline" | "merged" | "merged_all" | "naive" | "traditional" | "specific" | "factual" | "intelligence" | "delta"
   mode: string; // "concise" | "detailed" | "raw"
   answer: string | null; // null only in raw diagnostic mode
@@ -29,6 +31,7 @@ export interface ChatRequestParams {
   intent?: string;
   version?: string;
   raw?: boolean;
+  session_id?: string;
 }
 
 export type ChatMode = "concise" | "detailed";

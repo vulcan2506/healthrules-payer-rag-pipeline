@@ -1,0 +1,18 @@
+# Backend image (Dockerfile.backend) build context exclusions.
+frontend/
+.git/
+.claude/
+Stage 1/.claude/
+Stage 1/venv/
+Stage 1/__pycache__/
+Stage 1/*.log
+Stage 1/.env
+Stage 1/reanker.txt
+Stage 1/groq.txt
+Stage 1/Screenshot*.png
+Stage 1/WhatsApp*.jpeg
+retrieval_layer/__pycache__/
+**/__pycache__/
+**/*.pyc
+Healthcare Doc/
+Healthcare Doc.zip
