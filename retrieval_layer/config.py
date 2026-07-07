@@ -1,4 +1,11 @@
+import os as _os
 from pathlib import Path
+
+from dotenv import load_dotenv as _load_dotenv
+
+# Same key as Stage 1 — BYOK, loaded from Stage 1/.env (ANTHROPIC_API_KEY),
+# never hardcoded here. Does not override an already-set env var.
+_load_dotenv(Path(__file__).parent.parent / "Stage 1" / ".env")
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 STAGE1_OUTPUT   = Path(__file__).parent.parent / "Stage 1" / "data" / "output"
@@ -12,6 +19,31 @@ INDEX_DIR       = Path(__file__).parent / "index"
 # ── LLM server (same as Stage 1) ─────────────────────────────────────────────
 LLAMA_SERVER_URL  = "http://127.0.0.1:8080"
 LLAMA_MODEL_NAME  = "qwen35-9b"
+
+# ── LLM: Claude API (primary backend — reformulation, rewriting, generation) ──
+LLM_BACKEND       = _os.environ.get("LLM_BACKEND", "anthropic")  # "anthropic" | "local"
+ANTHROPIC_API_KEY = _os.environ.get("ANTHROPIC_API_KEY")
+ANTHROPIC_MODEL   = _os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")  # account only has Sonnet 4.6 access
+
+# Fallback chain if Claude fails (auth, rate limit, outage, refusal):
+#   1. Claude (primary)
+#   2. OpenRouter — free-tier model, OpenAI-compatible endpoint
+#   3. Groq — OpenAI-compatible endpoint
+#   4. Local llama.cpp server (auto-started if not already running, via
+#      Stage 1's start_server.sh). Separate from LLM_BACKEND=local, which
+#      skips Claude entirely.
+OPENROUTER_API_KEY   = _os.environ.get("OPENROUTER_API_KEY")
+OPENROUTER_MODEL     = _os.environ.get("OPENROUTER_MODEL", "openai/gpt-oss-120b:free")
+OPENROUTER_BASE_URL  = "https://openrouter.ai/api/v1"
+
+GROQ_API_KEY         = _os.environ.get("GROQ_API_KEY")
+GROQ_MODEL           = _os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_BASE_URL        = "https://api.groq.com/openai/v1"
+
+STAGE1_DIR = Path(__file__).parent.parent / "Stage 1"
+LOCAL_FALLBACK_STARTUP_TIMEOUT = 90     # seconds to wait for start_server.sh to report healthy
+LOCAL_FALLBACK_POLL_INTERVAL   = 2.0    # seconds between health-check polls
+LOCAL_FALLBACK_HEALTH_TIMEOUT  = 2.0    # per-request timeout for the health check itself
 
 # ── Embedding model (same as Stage 1 pipeline) ────────────────────────────────
 EMBED_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"

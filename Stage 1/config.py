@@ -1,6 +1,11 @@
 import os as _os
 from pathlib import Path
 
+from dotenv import load_dotenv as _load_dotenv
+
+# Loads Stage 1/.env (ANTHROPIC_API_KEY) — does not override already-set env vars.
+_load_dotenv(Path(__file__).parent / ".env")
+
 # ── Paths ──────────────────────────────────────────────────────────────────────
 PDF_DIR          = Path("data/pdfs")
 OUTPUT_DIR       = Path("data/output")
@@ -16,6 +21,45 @@ EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 LLAMA_SERVER_URL    = "http://127.0.0.1:8080"
 LLAMA_MODEL_NAME    = "qwen35-9b"       # matches --alias in start_server.sh
 LLAMA_PARALLEL_SLOTS = 6               # 6 parallel slots (-c 4096 -np 6); ~6x batch throughput
+
+# ── LLM: Claude API (primary backend — hackathon) ───────────────────────────
+# "local" routes llm_client.generate()/generate_batch() back to the llama.cpp
+# server above with zero call-site changes (same abstraction the KT doc
+# describes for the gemma→Qwen swap — only this pointer changes).
+LLM_BACKEND          = _os.environ.get("LLM_BACKEND", "anthropic")  # "anthropic" | "local"
+ANTHROPIC_API_KEY    = _os.environ.get("ANTHROPIC_API_KEY")
+ANTHROPIC_MODEL      = _os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")  # account only has Sonnet 4.6 access
+ANTHROPIC_PARALLEL_SLOTS = 6            # concurrent request cap for generate_batch()
+
+# Fallback chain if Claude fails (auth, rate limit, outage, refusal):
+#   1. Claude (primary)
+#   2. OpenRouter — free-tier model, OpenAI-compatible endpoint
+#   3. Groq — OpenAI-compatible endpoint
+#   4. Local llama.cpp server (auto-started if not already running)
+# NOTE: per the KT doc ("External LLM APIs are a hard block, not a soft
+# preference", Section 10) and this project's own memory, OpenRouter and Groq
+# were both already hard-blocked here by Claude Code's data-exfiltration
+# classifier when corpus content would be sent to them. Wiring them back in
+# at the user's explicit request, to demonstrate the block again.
+OPENROUTER_API_KEY   = _os.environ.get("OPENROUTER_API_KEY")
+OPENROUTER_MODEL     = _os.environ.get("OPENROUTER_MODEL", "openai/gpt-oss-120b:free")
+OPENROUTER_BASE_URL  = "https://openrouter.ai/api/v1"
+
+GROQ_API_KEY         = _os.environ.get("GROQ_API_KEY")
+GROQ_MODEL           = _os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_BASE_URL        = "https://api.groq.com/openai/v1"
+
+LOCAL_FALLBACK_STARTUP_TIMEOUT = 90     # seconds to wait for start_server.sh to report healthy
+LOCAL_FALLBACK_POLL_INTERVAL   = 2.0    # seconds between health-check polls
+LOCAL_FALLBACK_HEALTH_TIMEOUT  = 2.0    # per-request timeout for the health check itself
+
+# ── OCR: Claude vision (primary) with Docling fallback ──────────────────────
+# Docling extraction (ingest.py:_extract_pdf_with_docling) remains the
+# fallback path — triggered only if the Claude OCR pass raises an exception
+# (API error, timeout, refusal), not on output-quality heuristics.
+USE_CLAUDE_OCR       = _os.environ.get("USE_CLAUDE_OCR", "true").lower() == "true"
+OCR_PAGE_DPI         = 150               # page render resolution fed to Claude vision
+OCR_MAX_TOKENS       = 4096              # per-page transcription budget
 
 # ── Context-shift chunking ─────────────────────────────────────────────────────
 # Sentences are split into a new chunk when cosine similarity between

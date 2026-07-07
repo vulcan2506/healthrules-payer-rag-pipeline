@@ -27,6 +27,11 @@ httpx>=0.28.0
 pydantic>=2.0.0
 langchain-core>=1.4.0
 
+# ── LLM client (Claude API — primary OCR, retrieval, and chatbot generation) ──
+anthropic>=0.116.0
+python-dotenv>=1.0.0
+pymupdf>=1.27.0                # page-image rendering for Claude vision OCR (ingest.py)
+
 # ── retrieval_layer: vector store, ANN index, reranking, session graph ────────
 chromadb>=1.5.0
 hnswlib>=0.8.0
@@ -37,6 +42,11 @@ redis>=8.0.0                  # client for a locally-running Redis server (see s
 deepeval>=4.0.0
 python-docx>=1.2.0
 tqdm>=4.66.0
+
+# ── retrieval_layer: frontend API layer (api_server.py) ───────────────────────
+fastapi>=0.139.0
+uvicorn[standard]>=0.49.0
+python-multipart>=0.0.32       # multipart/form-data parsing for /api/upload
 
 # ── Not pip-installable — external services the pipeline calls out to ─────────
 # llama.cpp server (start_server.sh) — local Qwen model, OpenAI-compatible API

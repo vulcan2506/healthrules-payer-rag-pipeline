@@ -81,6 +81,7 @@ import redis
 
 import config
 import retriever
+import llm_client
 
 log = logging.getLogger(__name__)
 
@@ -212,19 +213,11 @@ def retrieve_detailed(query: str) -> Dict:
 # ── Answer generation (mirrors deep_eval.py's generate_answer) ────────────────
 
 def _generate_answer(query: str, result: Dict, max_tokens: int = 900) -> str:
-    from openai import OpenAI
-    client = OpenAI(base_url=config.LLAMA_SERVER_URL + "/v1", api_key="none")
-    resp = client.chat.completions.create(
-        model=config.LLAMA_MODEL_NAME,
-        messages=[
-            {"role": "system", "content": result["system_prompt"]},
-            {"role": "user",   "content": f"{result['context']}\n\nQuestion: {query}"},
-        ],
+    return llm_client.chat(
+        f"{result['context']}\n\nQuestion: {query}",
+        system_prompt=result["system_prompt"],
         max_tokens=max_tokens,
-        temperature=0.0,
-        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
-    return (resp.choices[0].message.content or "").strip()
 
 
 # ── Cache read/write ────────────────────────────────────────────────────────────
@@ -300,5 +293,12 @@ def answer_query(
     return {
         "query": query, "method": method, "mode": mode, "answer": answer,
         "confidence": result.get("_gated_confidence"),
+        # Passthrough only — result["chunks"] is already the exact list
+        # retriever.retrieve()/retrieve_merged()/retrieve_merged_all() produced
+        # for whichever method the gate actually picked; no new retrieval call,
+        # no re-ranking, nothing recomputed. Cached answers (from_cache=True,
+        # above) don't carry this — caching is seeded separately by
+        # build_cache_preset.py, which doesn't store chunks today.
+        "chunks": result.get("chunks", []),
         "from_cache": False, "latency_s": time.time() - t0,
     }

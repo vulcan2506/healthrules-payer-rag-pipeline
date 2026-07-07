@@ -45,11 +45,11 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
-from openai import OpenAI
 from typing_extensions import TypedDict
 
 import config as app_config  # aliased to avoid collision with LangGraph's 'config' arg name
 import retriever as ret
+import llm_client
 
 log = logging.getLogger(__name__)
 
@@ -80,15 +80,8 @@ class ChatState(TypedDict):
 
 
 # ── LLM client ─────────────────────────────────────────────────────────────────
-
-_llm: Optional[OpenAI] = None
-
-
-def _get_llm() -> OpenAI:
-    global _llm
-    if _llm is None:
-        _llm = OpenAI(base_url=app_config.LLAMA_SERVER_URL + "/v1", api_key="none")
-    return _llm
+# Routed through llm_client.py (Claude by default; local llama.cpp if
+# app_config.LLM_BACKEND == "local") — see node_rewrite_query below.
 
 
 # ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -167,18 +160,12 @@ def node_rewrite_query(state: ChatState) -> Dict:
             f"New user message: {query}\n\nRewritten standalone query:"
         )
         try:
-            resp = _get_llm().chat.completions.create(
-                model=app_config.LLAMA_MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": _REWRITE_SYSTEM},
-                    {"role": "user",   "content": prompt},
-                ],
+            rewritten = llm_client.chat(
+                prompt,
+                system_prompt=_REWRITE_SYSTEM,
                 max_tokens=80,
-                temperature=0.0,
                 stop=["\n"],
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
-            rewritten = resp.choices[0].message.content.strip()
             if rewritten.lower().strip() != query.lower().strip():
                 standalone    = rewritten
                 was_rewritten = True

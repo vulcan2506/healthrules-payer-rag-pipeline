@@ -40,11 +40,11 @@ import re
 from collections import defaultdict
 from typing import Dict, List, Optional
 
-import httpx
 import router as hnsw_router
 import reranker
 import chroma_store as cs
 import config
+import llm_client
 
 log = logging.getLogger(__name__)
 
@@ -341,25 +341,21 @@ Return ONLY a JSON array of {n} strings. No explanation, no markdown fences."""
 
 def _reformulate(query: str, n: int = 3, timeout: float = 12.0, enable_thinking: bool = False) -> List[str]:
     """
-    Ask the local LLM for n reformulations of query.
-    Falls back to [query] * n if the call fails or response is unparseable.
+    Ask the LLM (config.LLM_BACKEND — Claude by default) for n reformulations
+    of query. Falls back to [query] * n if the call fails or response is
+    unparseable.
     """
     prompt = _REFORMULATE_PROMPT.format(n=n) + f"\n\nQuestion: {query}"
     try:
-        resp = httpx.post(
-            f"{config.LLAMA_SERVER_URL}/v1/chat/completions",
-            json={
-                "model":       config.LLAMA_MODEL_NAME,
-                "messages":    [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
-                "max_tokens":  256,
-                "chat_template_kwargs": {"enable_thinking": enable_thinking},
-            },
+        raw = llm_client.chat(
+            prompt,
+            max_tokens=256,
+            temperature=0.3,
+            enable_thinking=enable_thinking,
             timeout=timeout,
         )
-        resp.raise_for_status()
-        raw = resp.json()["choices"][0]["message"]["content"]
-        # Strip <think> blocks (Qwen3 reasoning traces)
+        # Strip <think> blocks (local Qwen3 reasoning traces — no-op on Claude,
+        # which never puts thinking text in this field)
         raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
         # Strip optional markdown fences
         raw = re.sub(r"^```[a-z]*\n?", "", raw).rstrip("` \n")

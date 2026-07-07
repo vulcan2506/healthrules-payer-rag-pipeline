@@ -9,8 +9,10 @@ import re
 import os
 import math
 import json
+import base64
 import logging
 import multiprocessing as mp
+import concurrent.futures
 from pathlib import Path
 from typing import List, Dict, Optional
 from pypdf import PdfReader, PdfWriter
@@ -21,6 +23,7 @@ from keybert import KeyBERT
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 import torch
+import fitz  # PyMuPDF — page-image rendering for Claude vision OCR
 
 import config
 import llm_client
@@ -135,6 +138,87 @@ def _extract_pdf_with_docling(pdf_path: Path) -> List[Dict]:
             md_pages.append({"text": results_dict[i]})
             
     return md_pages
+
+
+# ── STEP 0: Claude vision OCR (primary — falls back to Docling on exception) ───
+
+_OCR_PROMPT = (
+    "Transcribe this document page to clean Markdown. Preserve section headers "
+    "as Markdown headers (#, ##, ###). Preserve every table as a GitHub-flavored "
+    "Markdown table (| col | col |). Transcribe all body text verbatim — do not "
+    "summarize, paraphrase, or omit any content, including footnotes and ticket "
+    "references. If the page is blank or contains no extractable content, return "
+    "an empty string. Output ONLY the Markdown — no commentary, no code fences."
+)
+
+
+def _render_page_png(pdf_path: Path, page_num: int, dpi: int) -> bytes:
+    doc = fitz.open(pdf_path)
+    try:
+        page = doc[page_num]
+        mat = fitz.Matrix(dpi / 72, dpi / 72)
+        return page.get_pixmap(matrix=mat).tobytes("png")
+    finally:
+        doc.close()
+
+
+def _ocr_page_with_claude(pdf_path: Path, page_num: int) -> str:
+    client = llm_client.get_anthropic_client()
+    image_b64 = base64.standard_b64encode(
+        _render_page_png(pdf_path, page_num, config.OCR_PAGE_DPI)
+    ).decode("utf-8")
+
+    resp = client.messages.create(
+        model=config.ANTHROPIC_MODEL,
+        max_tokens=config.OCR_MAX_TOKENS,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_b64}},
+                {"type": "text", "text": _OCR_PROMPT},
+            ],
+        }],
+    )
+    return next((b.text for b in resp.content if b.type == "text"), "").strip()
+
+
+def _extract_pdf_with_claude(pdf_path: Path) -> List[Dict]:
+    """
+    Primary OCR path: renders every page to an image and transcribes it via
+    Claude vision, in parallel (I/O-bound — threads, not the mp.Pool used for
+    Docling's CPU-bound extraction). Any page failure (API error, timeout,
+    refusal) propagates out of this function so the caller falls back to the
+    whole-document Docling path — no per-page silent degrade, to avoid mixing
+    inconsistent extraction quality within one document.
+    """
+    total_pages = len(PdfReader(pdf_path).pages)
+    md_pages: List[Optional[Dict]] = [None] * total_pages
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=config.ANTHROPIC_PARALLEL_SLOTS) as pool:
+        futures = {
+            pool.submit(_ocr_page_with_claude, pdf_path, i): i
+            for i in range(total_pages)
+        }
+        for fut in concurrent.futures.as_completed(futures):
+            page_num = futures[fut]
+            md_pages[page_num] = {"text": fut.result()}  # raises → caller falls back
+
+    return md_pages
+
+
+def _extract_pdf_primary(pdf_path: Path) -> List[Dict]:
+    """Claude vision OCR (primary) with Docling as the exception-triggered fallback."""
+    if not config.USE_CLAUDE_OCR:
+        return _extract_pdf_with_docling(pdf_path)
+    try:
+        log.info(f"Extracting {pdf_path.name} via Claude vision OCR (primary)...")
+        return _extract_pdf_with_claude(pdf_path)
+    except Exception as e:
+        log.error(
+            f"Claude OCR failed for {pdf_path.name} ({type(e).__name__}: {e}) — "
+            f"falling back to Docling extraction"
+        )
+        return _extract_pdf_with_docling(pdf_path)
 
 
 # ── Cleaners & Converters (RESTORED EXACTLY AS PROVIDED) ───────────────────────
@@ -341,6 +425,29 @@ def _load_preconverted_md(pdf_path: Path) -> Optional[List[Dict]]:
     return md_pages
 
 
+def _save_converted_markdown(pdf_path: Path, md_pages: List[Dict]) -> None:
+    """
+    Persists freshly-extracted markdown next to the source PDF as
+    <stem>_Converted.md — the same file _load_preconverted_md() already
+    knows to read on a future run (skips re-extraction entirely next time),
+    and what surfaces this PDF under the Knowledge Explorer's "Source
+    Documents" section. Only called after a real extraction (never when
+    md_pages was itself loaded from a pre-converted file, to avoid a
+    pointless rewrite). Best-effort — extraction succeeding matters more
+    than this cache write, so failures here only log a warning.
+    """
+    md_path = pdf_path.with_name(pdf_path.stem + "_Converted.md")
+    try:
+        text = "\n\n".join(
+            page.get("text", "").strip() for page in md_pages if page.get("text", "").strip()
+        )
+        if text:
+            md_path.write_text(text, encoding="utf-8")
+            log.info(f"Saved converted markdown → {md_path.name}")
+    except Exception as e:
+        log.warning(f"Could not save converted markdown for {pdf_path.name}: {e}")
+
+
 def process_single_pdf(pdf_path: Path, global_id: dict) -> List[Dict]:
     """
     Extracts a single PDF, runs keyword extraction, and applies text cohesion.
@@ -353,7 +460,8 @@ def process_single_pdf(pdf_path: Path, global_id: dict) -> List[Dict]:
 
     md_pages = _load_preconverted_md(pdf_path)
     if md_pages is None:
-        md_pages = _extract_pdf_with_docling(pdf_path)
+        md_pages = _extract_pdf_primary(pdf_path)
+        _save_converted_markdown(pdf_path, md_pages)
 
     clean_pages = []
     toc_texts = []

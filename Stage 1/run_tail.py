@@ -33,6 +33,7 @@ Run AFTER recover_qna.py has finished (with llama server still running):
     python run_tail.py
 """
 
+import argparse
 import importlib.util
 import json
 import logging
@@ -280,7 +281,7 @@ def step_cache_preset():
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
-def main():
+def main(skip_eval: bool = False):
     # Verify prerequisites
     nested = config.OUTPUT_DIR / "enterprise_nested_topics.json"
     filtered = config.OUTPUT_DIR / "filtered_chunks.json"
@@ -309,12 +310,24 @@ def main():
     step_convert_delta()
     step_build_index()
     step_chroma()
-    step_eval()
-    step_cache_preset()
+
+    if skip_eval:
+        log.info("\n[10-11/11] Skipping eval.py --compare and build_cache_preset.py (--skip-eval)")
+    else:
+        step_eval()
+        step_cache_preset()
 
     log.info("\n✅ Full pipeline tail complete.")
     log.info("   Interactive test: cd retrieval_layer && python cli.py --compare")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--skip-eval",
+        action="store_true",
+        help="Skip steps 10-11 (eval.py --compare, build_cache_preset.py) — for fast "
+             "UI-triggered runs. Manual invocations should omit this for the full report.",
+    )
+    args = parser.parse_args()
+    main(skip_eval=args.skip_eval)
