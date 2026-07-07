@@ -70,11 +70,13 @@ Open the Vercel URL, send a chat message, confirm:
 
 ## Notes
 
-- Render's free/starter web-service tiers can sleep after inactivity,
-  causing a slow first request. `render.yaml` defaults to the `standard`
-  plan (always-on) given torch + docling's memory footprint — adjust if
-  cost is a concern, but expect cold-start OCR/embedding-model loading to be
-  materially slower on a smaller/sleeping plan.
+- `render.yaml` currently targets the **free** web-service plan (512MB RAM)
+  to start with zero cost. This is genuinely tight for torch +
+  sentence-transformers + docling loaded together — if the first real chat
+  request OOM-crashes (check the service's Logs tab for a killed/restarted
+  process), bump `plan: free` → `plan: standard` (~$25/mo, 2GB RAM) in
+  `render.yaml` and push again. Free tier also sleeps after inactivity,
+  causing a slow first request after idle.
 - Local llama.cpp (fallback tier 4) obviously can't run on Render — the
   chain still degrades gracefully through Claude → OpenRouter → Groq;
   tier 4 simply won't come up if all three fail, surfaced as a clear error

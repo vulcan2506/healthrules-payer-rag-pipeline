@@ -18,7 +18,7 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile.backend
     dockerContext: .
-    plan: standard   # torch + sentence-transformers + docling need more than the free 512MB tier
+    plan: free   # trying free first (512MB) — torch+sentence-transformers+docling may OOM; upgrade to "standard" if so
     healthCheckPath: /api/health
     envVars:
       - key: ANTHROPIC_API_KEY
