@@ -34,7 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY retrieval_layer/requirements-serve.txt ./requirements-serve.txt
 RUN pip install --no-cache-dir -r requirements-serve.txt
 
-COPY "Stage 1" "./Stage 1"
+COPY ["Stage 1", "./Stage 1"]
 COPY retrieval_layer ./retrieval_layer
 
 WORKDIR /app/retrieval_layer
