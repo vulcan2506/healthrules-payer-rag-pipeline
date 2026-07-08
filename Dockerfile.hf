@@ -37,12 +37,13 @@ COPY --chown=1000:1000 retrieval_layer ./retrieval_layer
 WORKDIR /app/retrieval_layer
 
 ENV PORT=7860
+ENV PYTHONUNBUFFERED=1
 EXPOSE 7860
 
-# HF Spaces runs the container as UID 1000 regardless of this Dockerfile's
-# (absent) USER directive. redis-server's default daemonize working dir is
-# CWD (/app/retrieval_layer, root-owned from the build) — if it can't write
-# its pidfile there, it fails silently (daemonize with no logfile discards
-# output to /dev/null) and the `&&` never reaches uvicorn. Pointing it at
-# /tmp (writable by any UID) with an explicit logfile avoids that.
-CMD ["sh", "-c", "redis-server --dir /tmp --pidfile /tmp/redis.pid --logfile /tmp/redis.log --daemonize yes && uvicorn api_server:app --host 0.0.0.0 --port ${PORT}"]
+# TEMPORARY diagnostic markers: prior redis --dir/--chown fixes didn't
+# resolve a silent hang past a single platform startup banner (no crash,
+# no further output at all). Markers below + `;` instead of `&&` (so a
+# redis failure can't mask whether uvicorn ever even starts) are here to
+# find out, from the next boot's logs, exactly which step stops producing
+# output. Remove once the real cause is found and fixed.
+CMD ["sh", "-c", "echo BOOT_1_START; redis-server --dir /tmp --pidfile /tmp/redis.pid --logfile /tmp/redis.log --daemonize yes; echo BOOT_2_REDIS_EXIT=$?; echo BOOT_3_LAUNCHING_UVICORN; uvicorn api_server:app --host 0.0.0.0 --port ${PORT}"]
