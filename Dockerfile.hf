@@ -35,4 +35,10 @@ WORKDIR /app/retrieval_layer
 ENV PORT=7860
 EXPOSE 7860
 
-CMD ["sh", "-c", "redis-server --daemonize yes && uvicorn api_server:app --host 0.0.0.0 --port ${PORT}"]
+# HF Spaces runs the container as UID 1000 regardless of this Dockerfile's
+# (absent) USER directive. redis-server's default daemonize working dir is
+# CWD (/app/retrieval_layer, root-owned from the build) — if it can't write
+# its pidfile there, it fails silently (daemonize with no logfile discards
+# output to /dev/null) and the `&&` never reaches uvicorn. Pointing it at
+# /tmp (writable by any UID) with an explicit logfile avoids that.
+CMD ["sh", "-c", "redis-server --dir /tmp --pidfile /tmp/redis.pid --logfile /tmp/redis.log --daemonize yes && uvicorn api_server:app --host 0.0.0.0 --port ${PORT}"]
