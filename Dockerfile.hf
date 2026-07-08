@@ -27,8 +27,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY retrieval_layer/requirements-serve.txt ./requirements-serve.txt
 RUN pip install --no-cache-dir -r requirements-serve.txt
 
-COPY ["Stage 1", "./Stage 1"]
-COPY retrieval_layer ./retrieval_layer
+# HF Spaces runs the container as UID 1000 regardless of this Dockerfile's
+# (absent) USER directive — without --chown, these stay root-owned and any
+# runtime write under them (chromadb's SQLite WAL/lock files next to the
+# baked-in corpus, __pycache__, etc.) fails under the platform's actual UID.
+COPY --chown=1000:1000 ["Stage 1", "./Stage 1"]
+COPY --chown=1000:1000 retrieval_layer ./retrieval_layer
 
 WORKDIR /app/retrieval_layer
 
