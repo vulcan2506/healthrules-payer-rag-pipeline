@@ -91,7 +91,7 @@ export function ResponseCard({ response }: { response: ChatResponse }) {
             </CollapsibleTrigger>
             <CollapsibleContent className="mt-2 flex flex-col gap-2">
               {response.chunks.map((chunk, i) => (
-                <div key={chunk.chunk_id || i} className="rounded-md border bg-muted/30 p-2.5 text-xs">
+                <div key={chunk.chunk_id || i} className="rounded-md border bg-muted/30 p-2.5 text-xs shadow-sm">
                   <div className="mb-1 flex flex-wrap items-center gap-1.5 font-medium">
                     <span className="text-muted-foreground">[{i + 1}]</span>
                     <span>{chunk.section_header || "Untitled section"}</span>

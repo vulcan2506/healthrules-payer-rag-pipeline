@@ -166,7 +166,7 @@ export function DocumentProcessing() {
       </div>
 
       {job && (
-        <div className="flex flex-col gap-1.5 rounded-md border bg-muted/30 p-2.5 text-xs">
+        <div className="flex flex-col gap-1.5 rounded-md border bg-muted/30 p-2.5 text-xs shadow-sm">
           <div className="flex min-w-0 items-center gap-1.5 font-medium">
             {job.status === "running" && <Loader2 className="size-3.5 shrink-0 animate-spin" />}
             {job.status === "done" && <CircleCheck className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />}

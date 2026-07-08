@@ -409,6 +409,8 @@ def _display_name(name: str) -> str:
 
 def _build_tree(path: Path, top_level: bool = True) -> List[Dict]:
     entries = []
+    if not path.exists():
+        return entries
     for child in sorted(path.iterdir()):
         if top_level and child.name not in _TOP_LEVEL_ALLOWLIST:
             continue
