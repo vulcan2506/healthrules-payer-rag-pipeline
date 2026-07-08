@@ -40,10 +40,7 @@ ENV PORT=7860
 ENV PYTHONUNBUFFERED=1
 EXPOSE 7860
 
-# TEMPORARY diagnostic markers: prior redis --dir/--chown fixes didn't
-# resolve a silent hang past a single platform startup banner (no crash,
-# no further output at all). Markers below + `;` instead of `&&` (so a
-# redis failure can't mask whether uvicorn ever even starts) are here to
-# find out, from the next boot's logs, exactly which step stops producing
-# output. Remove once the real cause is found and fixed.
-CMD ["sh", "-c", "echo BOOT_1_START; redis-server --dir /tmp --pidfile /tmp/redis.pid --logfile /tmp/redis.log --daemonize yes; echo BOOT_2_REDIS_EXIT=$?; echo BOOT_3_LAUNCHING_UVICORN; uvicorn api_server:app --host 0.0.0.0 --port ${PORT}"]
+# redis-server's daemonize mode defaults to writing its pidfile into CWD
+# (root-owned from the build); pointing it at /tmp (writable by any UID)
+# avoids a silent failure under HF's UID-1000 runtime.
+CMD ["sh", "-c", "redis-server --dir /tmp --pidfile /tmp/redis.pid --logfile /tmp/redis.log --daemonize yes && uvicorn api_server:app --host 0.0.0.0 --port ${PORT}"]

@@ -84,6 +84,15 @@ def _get_session(session_id: str) -> session_module.ConversationSession:
         return sess
 
 
+@app.get("/")
+def root() -> Dict:
+    # HF Spaces' own readiness probe hits "/" before flipping public edge
+    # routing live — without a route here it 404s, and the Space can stay
+    # stuck showing HF's placeholder page even once the container is
+    # genuinely up and /api/health works internally.
+    return {"status": "ok", "service": "HealthRules Payer Knowledge API"}
+
+
 @app.get("/api/health")
 def health() -> Dict:
     return {"status": "ok"}
