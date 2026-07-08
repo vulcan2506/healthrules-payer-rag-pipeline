@@ -41,19 +41,62 @@ corpus (`chroma_db/`, `index/`) already ships baked into the image via
 git-LFS, so chat/knowledge-browsing/visualize all work immediately without
 running Process first.
 
+## 1b. Backend → Hugging Face Spaces (alternative to Render)
+
+Same backend, different host — use this instead of step 1 if you'd rather
+avoid Render's 512MB free-tier RAM ceiling. HF Spaces' free CPU Basic tier
+gives 16GB RAM / 2 vCPU (vs Render's 512MB), at the cost of the Space
+sleeping after inactivity on the free tier (same tradeoff Render's free plan
+already has). `Dockerfile.hf` bundles a `redis-server` sidecar since HF
+Spaces has no managed Redis add-on.
+
+1. Hugging Face → **New Space** → SDK: **Docker** → note the `<username>/<space-name>`.
+2. Space → **Settings** → **Access Tokens** (your account, not the Space) →
+   create a token with **write** access if you don't already have one.
+3. Locally:
+   ```bash
+   pip install -U huggingface_hub
+   hf auth login   # paste the token
+   python deploy_hf_space.py <username>/<space-name>
+   ```
+   This uploads exactly the files `git ls-files "Stage 1" retrieval_layer`
+   returns (73 files, ~139MB — the same set already safe for GitHub: no
+   secrets, no `venv/`, no `Stage 1/data/`), plus `Dockerfile.hf` renamed to
+   `Dockerfile` and `README_hf.md` renamed to `README.md` (HF Spaces
+   requires those exact filenames at the repo root; your GitHub-facing
+   `README.md`/`Dockerfile.backend` are untouched).
+4. Space → **Settings** → **Variables and secrets** → add `ANTHROPIC_API_KEY`,
+   `OPENROUTER_API_KEY`, `GROQ_API_KEY`. Leave `ALLOWED_ORIGINS` for step 3 below.
+5. Wait for the build (torch + docling + sentence-transformers — a few
+   minutes). Confirm: `curl https://<username>-<space-name>.hf.space/api/health`
+   → `{"status": "ok"}`.
+6. Use `https://<username>-<space-name>.hf.space` as the backend URL in
+   step 2 (Vercel) and step 3 (CORS) below, same as the Render URL.
+
+Re-run `python deploy_hf_space.py <username>/<space-name>` any time backend
+code changes — one command, one new commit.
+
+**Known limitation:** this only closes the RAM gap, not the timeout risk —
+`/api/chat` still returns one blocking (non-streamed) response, and a cold
+first request that also cascades through the Claude→OpenRouter→Groq fallback
+chain can run long behind HF's proxy. Streaming the response is the real fix
+for that and hasn't been done yet.
+
 ## 2. Frontend → Vercel
 
 1. Vercel dashboard → **Add New** → **Project** → import the same GitHub repo.
 2. Set **Root Directory** to `frontend/` (the Next.js app doesn't live at
    the repo root).
 3. Framework preset should auto-detect Next.js. Add one env var:
-   - `NEXT_PUBLIC_API_BASE_URL` = `https://<your-service>.onrender.com`
-     (the Render backend URL from step 1)
+   - `NEXT_PUBLIC_API_BASE_URL` = your backend URL from step 1 (Render,
+     `https://<your-service>.onrender.com`) or step 1b (HF Spaces,
+     `https://<username>-<space-name>.hf.space`)
 4. Deploy. Vercel gives you a `https://<your-app>.vercel.app` URL.
 
 ## 3. Close the loop — CORS
 
-Go back to Render → the backend service's **Environment** tab → update:
+Go back to whichever backend host you used (Render's **Environment** tab, or
+HF Space's **Variables and secrets**) → update:
 ```
 ALLOWED_ORIGINS = https://<your-app>.vercel.app,http://localhost:3000
 ```
