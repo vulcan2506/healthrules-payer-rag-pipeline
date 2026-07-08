@@ -332,5 +332,16 @@ def get_router() -> Router:
     return _router
 
 
+def reset_router() -> None:
+    """
+    Drops the cached Router so the next get_router() call rebuilds its HNSW
+    index from disk. Needed after a corpus reset + reprocess — see
+    chroma_store.reset_store()'s docstring for why.
+    """
+    global _router
+    with _router_lock:
+        _router = None
+
+
 def route(query: str) -> Dict:
     return get_router().route(query)

@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -29,10 +30,12 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+import chroma_store
 import config
 import llm_client
 import redis_cache
 import retriever
+import router
 import session as session_module
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)-8s %(message)s")
@@ -251,6 +254,46 @@ async def upload(file: UploadFile = File(...)) -> Dict:
     return {"filename": safe_name, "size_bytes": len(content)}
 
 
+# ── /api/reset ───────────────────────────────────────────────────────────────
+# Clears the demo/previous corpus (source PDFs, Stage 1 output, chroma_db,
+# index) so a client can process their own PDF set from a clean slate instead
+# of it merging with whatever was there before — /api/process has no
+# incremental mode, so leftover old PDFs would otherwise get reprocessed
+# alongside the new ones.
+
+class ResetRequest(BaseModel):
+    confirm: bool = False
+
+
+def _clear_dir_contents(path: Path) -> None:
+    if not path.exists():
+        return
+    for child in path.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
+@app.post("/api/reset")
+def reset_corpus(req: ResetRequest) -> Dict:
+    if not req.confirm:
+        raise HTTPException(400, "Set confirm=true to clear the corpus — this deletes all "
+                                  "processed PDFs, generated output, and the vector store.")
+
+    _clear_dir_contents(PDF_DIR)
+    _clear_dir_contents(OUTPUT_DIR)
+    _clear_dir_contents(config.CHROMA_DIR)
+    _clear_dir_contents(config.INDEX_DIR)
+
+    router.reset_router()
+    chroma_store.reset_store()
+    with _sessions_lock:
+        _sessions.clear()
+
+    return {"status": "ok", "message": "Corpus cleared. Upload new PDFs and run Process to build a fresh one."}
+
+
 # ── /api/process ─────────────────────────────────────────────────────────────
 # Runs Stage 1's own main.py + run_tail.py --skip-eval as subprocesses — this
 # reprocesses the ENTIRE data/pdfs/ corpus (main.py has no incremental/single-
@@ -308,6 +351,13 @@ def _run_process_job(job_id: str) -> None:
             _tail_log_into_job(proc, log_path, job_id)
             if proc.returncode != 0:
                 raise RuntimeError(f"run_tail.py exited with code {proc.returncode}")
+
+        # router/chroma_store cache their index/store in memory for the life
+        # of this process (see their double-checked-locking singletons) —
+        # without dropping them here, a long-lived api_server keeps serving
+        # the OLD corpus after a successful reprocess.
+        router.reset_router()
+        chroma_store.reset_store()
 
         with _jobs_lock:
             _jobs[job_id]["status"] = "done"

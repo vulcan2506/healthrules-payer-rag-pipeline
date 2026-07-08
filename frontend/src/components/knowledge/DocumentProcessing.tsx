@@ -2,17 +2,19 @@
 
 import { useState, useRef, useEffect, DragEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { UploadCloud, FileCheck2, Play, Loader2, CircleCheck, CircleX, Info } from "lucide-react";
+import { UploadCloud, FileCheck2, Play, Loader2, CircleCheck, CircleX, Info, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { uploadPdf } from "@/lib/api/upload";
-import { startProcessing, getProcessStatus } from "@/lib/api/process";
+import { startProcessing, getProcessStatus, resetCorpus } from "@/lib/api/process";
 import { cn } from "@/lib/utils";
 
 export function DocumentProcessing() {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
@@ -31,6 +33,16 @@ export function DocumentProcessing() {
     queryFn: () => getProcessStatus(jobId as string),
     enabled: !!jobId,
     refetchInterval: (query) => (query.state.data?.status === "running" ? 2000 : false),
+  });
+
+  const resetMutation = useMutation({
+    mutationFn: resetCorpus,
+    onSuccess: () => {
+      setUploadedFiles([]);
+      setJobId(null);
+      setResetDialogOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["knowledge-files"] });
+    },
   });
 
   const job = statusQuery.data;
@@ -114,19 +126,44 @@ export function DocumentProcessing() {
         </div>
       ))}
 
-      <Button
-        size="sm"
-        onClick={() => processMutation.mutate()}
-        disabled={uploadedFiles.length === 0 || isRunning || processMutation.isPending}
-        className="gap-1.5"
-      >
-        {isRunning || processMutation.isPending ? (
-          <Loader2 className="size-3.5 animate-spin" />
-        ) : (
-          <Play className="size-3.5" />
-        )}
-        Process
-      </Button>
+      <div className="flex gap-1.5">
+        <Button
+          size="sm"
+          onClick={() => processMutation.mutate()}
+          disabled={uploadedFiles.length === 0 || isRunning || processMutation.isPending}
+          className="flex-1 gap-1.5"
+        >
+          {isRunning || processMutation.isPending ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <Play className="size-3.5" />
+          )}
+          Process
+        </Button>
+
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => setResetDialogOpen(true)}
+                disabled={isRunning || resetMutation.isPending}
+              >
+                {resetMutation.isPending ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="size-3.5" />
+                )}
+              </Button>
+            }
+          />
+          <TooltipContent side="left" className="max-w-64 text-balance">
+            Clear the current corpus (source PDFs, generated output, vector store) so a new set
+            of PDFs can be processed from a clean slate, instead of merging with what&apos;s here now.
+          </TooltipContent>
+        </Tooltip>
+      </div>
 
       {job && (
         <div className="flex flex-col gap-1.5 rounded-md border bg-muted/30 p-2.5 text-xs">
@@ -138,6 +175,38 @@ export function DocumentProcessing() {
           </div>
         </div>
       )}
+
+      {resetMutation.isError && (
+        <p className="text-xs text-destructive">
+          {resetMutation.error instanceof Error ? resetMutation.error.message : "Reset failed"}
+        </p>
+      )}
+
+      <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear the current corpus?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes all processed PDFs, generated output, and the vector store
+              on this deployment. Use this before processing a client&apos;s own PDF set so it
+              doesn&apos;t merge with what&apos;s here now. This can&apos;t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" size="sm" />}>Cancel</DialogClose>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => resetMutation.mutate()}
+              disabled={resetMutation.isPending}
+              className="gap-1.5"
+            >
+              {resetMutation.isPending && <Loader2 className="size-3.5 animate-spin" />}
+              Clear corpus
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

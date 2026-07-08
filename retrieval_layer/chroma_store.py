@@ -851,6 +851,18 @@ def warm() -> None:
     get_store().warm()
 
 
+def reset_store() -> None:
+    """
+    Drops the cached ChromaStore so the next get_store() call re-opens
+    chroma_db/ from disk. Needed after a corpus reset + reprocess — without
+    this, a long-lived api_server process keeps serving the OLD in-memory
+    store even after the underlying files are replaced.
+    """
+    global _store
+    with _store_lock:
+        _store = None
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)-8s %(message)s")
     build_all()
