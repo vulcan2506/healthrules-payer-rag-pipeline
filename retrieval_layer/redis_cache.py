@@ -81,6 +81,7 @@ import redis
 
 import config
 import retriever
+import planner
 import llm_client
 
 log = logging.getLogger(__name__)
@@ -207,17 +208,50 @@ def retrieve_detailed(query: str) -> Dict:
     accepts that faithfulness risk, as opposed to gate_and_retrieve()'s
     concise/"doesn't drift" mode, which only reaches for merged_all when
     pipeline's own confidence says it's actually needed.
+
+    After pooling, always hands the result to planner.explore() — Adaptive
+    Evidence Escalation: the planner assesses the pooled evidence on EVERY
+    call (as of 2026-07-10, not gated by confidence), and only actually loops
+    fetching more (up to config.PLANNER_MAX_HOPS hops, each hop's gap-queries
+    re-routed fresh, not scoped to this query's own parent) if that
+    assessment says evidence is incomplete or confidence is still low. A
+    no-op assessment (evidence already sufficient) returns merged_all's
+    result unchanged except for a harmless extra LLM round-trip. Entirely a
+    no-op, including that round-trip, unless config.PLANNER_ENABLED is True
+    — see planner.py's module docstring and config.py's PLANNER_ENABLED
+    comment for the evaluation this decision was based on.
     """
     result = dict(retriever.retrieve_merged_all(query))
-    result["_gated_method"] = "merged_all"
+    result = planner.explore(query, result)
+    result["_gated_method"] = "merged_all+explore" if result.get("_explored") else "merged_all"
     return result
 
 
 # ── Answer generation (mirrors deep_eval.py's generate_answer) ────────────────
 
 def _generate_answer(query: str, result: Dict, max_tokens: int = 900) -> str:
+    """
+    Scaffolds the answer around result["_filled_concepts"] when present —
+    the sub-topics planner.explore() identified as missing AND actually
+    found supporting evidence for (set only on escalation; see planner.py).
+    Deliberately does NOT scaffold around every concept the planner named as
+    missing — only ones with real retrieved evidence behind them. Naming an
+    unfilled gap here would invite the model to write about a concept it has
+    nothing grounding it in, which is exactly the hallucination/drift risk
+    this whole feature exists to avoid, not produce.
+    """
+    context = result["context"]
+    filled = result.get("_filled_concepts")
+    if filled:
+        outline = "\n".join(f"- {c}" for c in dict.fromkeys(filled))  # de-dup, keep order
+        context += (
+            "\n\nThe context above was expanded to also cover these specific "
+            "sub-topics — organize your answer to address each one using ONLY "
+            "the context provided (do not mention or speculate about any other "
+            "sub-topic not covered above):\n" + outline
+        )
     return llm_client.chat(
-        f"{result['context']}\n\nQuestion: {query}",
+        f"{context}\n\nQuestion: {query}",
         system_prompt=result["system_prompt"],
         max_tokens=max_tokens,
     )

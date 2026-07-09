@@ -97,6 +97,11 @@ def _run_gated(q: str) -> Dict:
     import redis_cache
     return redis_cache.gate_and_retrieve(q)
 
+def _run_detailed(q: str) -> Dict:
+    """merged_all + planner.explore() (only actually loops if config.PLANNER_ENABLED)."""
+    import redis_cache
+    return redis_cache.retrieve_detailed(q)
+
 METHOD_FNS = {
     "pipeline":    _run_pipeline,
     "naive":       _run_naive,
@@ -104,6 +109,7 @@ METHOD_FNS = {
     "merged":      _run_merged,
     "merged_all":  _run_merged_all,
     "gated":       _run_gated,
+    "detailed":    _run_detailed,
 }
 DEFAULT_METHODS = ["pipeline", "merged", "merged_all"]
 

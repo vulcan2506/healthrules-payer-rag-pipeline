@@ -306,6 +306,63 @@ class Router:
 
         return {"chunks": chunks, "expanded_parents": expanded_parents}
 
+    def expand_children(
+        self,
+        parent_indices: List[int],
+        exclude_chunk_ids: Optional[set] = None,
+        max_subs: int = 4,
+    ) -> Dict:
+        """
+        Enumerate chunks from ALL sub-categories under the given parent(s), via
+        the taxonomy structure itself (parent_meta[p]['sub_indices'], built by
+        build_index.py from enterprise_nested_topics.json) — NOT limited to
+        whatever happened to score as an HNSW hit for the original query, the
+        way expand_siblings/expand_cross_parent are.
+
+        Used by planner.py's Adaptive Knowledge Exploration: a planner-
+        generated sub-query (e.g. "sequencing rules for sepsis codes") may
+        target a child sub-topic the ORIGINAL broad query never surfaced at
+        all, because nothing in its own wording pointed there. This method
+        makes no relevance judgment of its own — it just returns the full
+        candidate set for the caller to rerank against its own (sub-)query.
+
+        Returns:
+            {"chunks": [...], "expanded_subs": [sub_name, ...]}
+        """
+        self.load()
+        exclude_chunk_ids = exclude_chunk_ids or set()
+
+        sub_indices: List[int] = []
+        for p_idx in parent_indices:
+            if 0 <= p_idx < len(self.parent_meta):
+                sub_indices += self.parent_meta[p_idx].get("sub_indices", [])
+        sub_indices = sub_indices[:max_subs]
+
+        if not sub_indices:
+            return {"chunks": [], "expanded_subs": []}
+
+        sub_idx_set = set(sub_indices)
+        chunk_ids: List = []
+        seen = set(exclude_chunk_ids)
+        for meta in self.hnsw_meta:
+            if meta["sub_idx"] not in sub_idx_set:
+                continue
+            for cid in meta["chunk_ids"]:
+                if cid not in seen:
+                    seen.add(cid)
+                    chunk_ids.append(cid)
+
+        chunks = []
+        for cid in chunk_ids:
+            chunk = self.chunk_lookup.get(str(cid))
+            if chunk:
+                chunks.append({"chunk_id": cid, **chunk})
+
+        expanded_subs = [self.sub_meta[s]["name"] for s in sub_indices]
+        log.info(f"Enumerated children sub-topic(s): {expanded_subs}")
+
+        return {"chunks": chunks, "expanded_subs": expanded_subs}
+
 
 # Singleton — load once, reuse across queries.
 #
